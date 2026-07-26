@@ -1,0 +1,62 @@
+name: Sync upstream
+
+# 触发条件:
+#   1. 每周一凌晨 4 点(北京时间)自动跑一次
+#   2. 你也可以 Actions 页面手动点 "Run workflow" 触发
+on:
+  schedule:
+    - cron: '0 20 * * 0'    # UTC 20:00 = 北京时间 周一 04:00
+  workflow_dispatch:
+
+permissions:
+  contents: write           # 允许 Action push / 改 PR
+  pull-requests: write      # 允许开 PR
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0     # 完整历史,避免 rebase 出错
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync upstream
+        run: |
+          set -e
+          git remote add upstream https://github.com/shy3130/tickflow-stock-panel.git
+          git fetch upstream
+          # 看看上游 main 是不是领先
+          UPSTREAM_HEAD=$(git rev-parse upstream/main)
+          LOCAL_HEAD=$(git rev-parse HEAD)
+          if [ "$UPSTREAM_HEAD" = "$LOCAL_HEAD" ]; then
+            echo "✓ Already up-to-date with upstream."
+            exit 0
+          fi
+          # 提前算下有没有冲突,没冲突就 fast-forward merge + push
+          # 有冲突就开 PR 让你手动处理
+          git merge upstream/main --no-edit || CONFLICT=1
+          if [ -z "$CONFLICT" ]; then
+            git push origin main
+            echo "✓ Fast-forwarded main to upstream."
+          else
+            # 有冲突:放弃 merge,改用 PR 方式
+            git merge --abort || true
+            git checkout -b sync/upstream-$(date +%Y%m%d-%H%M%S)
+            git merge upstream/main --no-edit || true
+            git push origin HEAD
+            gh pr create \
+              --base main \
+              --head "$(git rev-parse --abbrev-ref HEAD)" \
+              --title "🔄 Sync upstream $(date +%Y-%m-%d)" \
+              --body "自动从 shy3130/tickflow-stock-panel 同步。**有冲突**,需要手动 review 后 merge。" \
+              || echo "PR 可能已存在,跳过"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
