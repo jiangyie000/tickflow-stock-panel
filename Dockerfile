@@ -5,8 +5,8 @@
 ARG USE_CN_MIRROR=1
 ARG INCLUDE_STOCKSDK=0
 ARG NPM_REGISTRY=https://registry.npmmirror.com
-ARG PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
-# 备用 PyPI 源:主源同步延迟/故障时自动兜底(阿里云与清华互为补充)
+ARG PYPI_INDEX=https://mirrors.aliyun.com/pypi/simple
+# 备用 PyPI 源:主源同步延迟/故障时自动兜底(两个阿里云源互为补充)
 ARG PYPI_FALLBACK=https://mirrors.aliyun.com/pypi/simple
 ARG BACKEND_EXTRAS=
 ARG CODEX_CLI_VERSION=0.144.3
@@ -69,7 +69,7 @@ RUN if [ "$USE_CN_MIRROR" = "1" ]; then npm config set registry "$NPM_REGISTRY";
 # === Stage 2: Python 运行时 ===
 FROM python:3.11-slim AS runtime
 ARG USE_CN_MIRROR=1
-ARG PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PYPI_INDEX=https://mirrors.aliyun.com/pypi/simple
 ARG PYPI_FALLBACK=https://mirrors.aliyun.com/pypi/simple
 ARG BACKEND_EXTRAS=
 ARG INCLUDE_STOCKSDK=0
