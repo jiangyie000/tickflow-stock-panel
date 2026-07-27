@@ -81,17 +81,16 @@ WORKDIR /app
 # 自带 libnode/libc-ares 等全部动态依赖, 无需手动补库。
 # 国内构建走 apt mirror 已在 debian 镜像sources.list 配好, 无需额外换源。
 # tesseract-ocr: 自选截图导入（始终安装）; nodejs: 仅 INCLUDE_STOCKSDK=1 时安装
-# 独立 RUN 块配置 apt proxy.conf (若传了 HTTP_PROXY) 或自动换源 (USE_CN_MIRROR=1),
+# 独立 RUN 块配置 apt 源 (USE_CN_MIRROR=1 强制换清华源, 跟 HTTP_PROXY 解耦,
+# 避免代理 502 时 apt 失败; HTTP_PROXY 只影响 pip/npm, 走 PyPI/npm 国际源需要).
 # 故意与下方 apt-get 块解耦, 最小化与上游 Dockerfile 改动的冲突概率。
-RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
-      mkdir -p /etc/apt/apt.conf.d && \
-      printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' \
-        "$HTTP_PROXY" "$HTTPS_PROXY" > /etc/apt/apt.conf.d/00proxy; \
-    elif [ "$USE_CN_MIRROR" = "1" ]; then \
+RUN if [ "$USE_CN_MIRROR" = "1" ]; then \
       sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; \
               s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' \
         /etc/apt/sources.list.d/debian.sources; \
     fi
+    # 注: HTTP_PROXY 不再注入 apt, 避免代理并发下载 502 阻断整个 build.
+    #     只透传到 pip/npm (由 ENV 传递).
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \

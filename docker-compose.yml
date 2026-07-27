@@ -8,6 +8,11 @@ services:
       args:
         BACKEND_EXTRAS: ${BACKEND_EXTRAS:-}
         CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-0.144.3}
+        # 代理参数从 .env 读, 空就走 USE_CN_MIRROR 自动换源.
+        # 见 .env.example 注释.
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     container_name: TickFlow_Stock_Panel
     ports:
       - "${PORT:-3018}:3018"
@@ -23,6 +28,10 @@ services:
       - DATA_DIR=/app/data
       # 将主机 Codex Desktop 的 loopback local-access 端点映射到 Docker host gateway。
       - CODEX_DOCKER_HOST=host.docker.internal
+      # 运行时透传代理, 容器内访问外网 (如远程数据源) 走代理.
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
     volumes:
       - ./data:/app/data
       - ./tiers.yaml:/app/tiers.yaml:ro
