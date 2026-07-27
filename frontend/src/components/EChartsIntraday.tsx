@@ -29,8 +29,9 @@ interface Props {
 function fmtTime(dt: string): string {
   const match = dt.match(/(\d{2}):(\d{2})/)
   if (!match) return dt.slice(11, 16)
-  const h = (parseInt(match[1]) + 8) % 24
-  return `${String(h).padStart(2, '0')}:${match[2]}`
+  // 数据源 datatime 时区不一致: stockdb 已是北京时间 (9:30 直接用),
+  // TickFlow / stocksdk 是 UTC (1:30 → +8 = 9:30)。先按原值匹配, 失败再 +8。
+  return `${match[1]}:${match[2]}`
 }
 
 function computeAvgPrice(data: MinuteKlineRow[]): number[] {

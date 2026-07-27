@@ -1,0 +1,13 @@
+# stockdb 本地数据源插件
+# 基于 stockdb (K-V 数据库,自带 HTTP 服务)。默认地址 192.168.31.145:7899。
+# 提供: 日K / 复权因子 / 分钟K / 实时(取最近一日日K为快照) / 标的维表。
+# 不提供: 财务 (自动回退 TickFlow)。
+
+name: stockdb
+display_name: "stockdb（本地数据库）"
+runtime: python
+entry: app.plugins.stockdb.provider:StockDBProvider
+check: app.plugins.stockdb.bridge:availability
+datasets: [daily, adj_factor, minute, realtime]
+description: "本地 stockdb (K-V 数据库) HTTP 服务, 默认 http://192.168.31.145:7899。覆盖日K/复权/分钟/实时快照/标的。复权表只存事件日记录(非全交易日连续),下游需 carry-forward。"
+install_hint: "启动 stockdb 服务, 设置 STOCKDB_URL 环境变量 (默认 http://192.168.31.145:7899)"

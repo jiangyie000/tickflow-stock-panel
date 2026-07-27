@@ -13,8 +13,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
+LOG_DIR="$ROOT/logs"
 BACKEND_PORT="${BACKEND_PORT:-3018}"
 FRONTEND_PORT="${FRONTEND_PORT:-3011}"
+BACKEND_LOG="$LOG_DIR/backend.log"
+
+mkdir -p "$LOG_DIR"
 
 # Match Docker's BACKEND_EXTRAS behavior so old CPUs can select Polars'
 # rtcompat runtime before the backend starts. An exported value wins over .env.
@@ -132,14 +136,30 @@ echo -e "${BLUE}│${NC}                                              ${BLUE}│
 echo -e "${BLUE}│${NC}  backend   ${YELLOW}http://localhost:$BACKEND_PORT${NC}          ${BLUE}│${NC}"
 echo -e "${BLUE}│${NC}  frontend  ${YELLOW}http://localhost:$FRONTEND_PORT${NC}          ${BLUE}│${NC}"
 echo -e "${BLUE}│${NC}                                              ${BLUE}│${NC}"
+echo -e "${BLUE}│${NC}  backend log  ${YELLOW}$BACKEND_LOG${NC}  ${BLUE}│${NC}"
+echo -e "${BLUE}│${NC}                                              ${BLUE}│${NC}"
+echo -e "${BLUE}│${NC}  ${GRAY}tail -f $BACKEND_LOG${NC}     ${BLUE}│${NC}"
+echo -e "${BLUE}│${NC}  ${GRAY}grep -i error $BACKEND_LOG${NC}         ${BLUE}│${NC}"
+echo -e "${BLUE}│${NC}                                              ${BLUE}│${NC}"
 echo -e "${BLUE}│${NC}  Ctrl-C 同时关闭两端                          ${BLUE}│${NC}"
 echo -e "${BLUE}╰──────────────────────────────────────────────╯${NC}"
 echo
 
+# 用 awk 把 stderr/stdout 行同时干两件事:
+#   - 加 [backend ] 前缀打印到 stdout → 终端
+#   - 原样追加到 $BACKEND_LOG → 文件 (无前缀,便于 grep)
+# 单个 awk,避免 tee 进程替换在受限 shell 下写不进去的问题。
+prefix_and_log() {
+  awk -v p="$1" -v l="$2" '{ printf "%s%s\n", p, $0; fflush(); print $0 >> l; fflush() }'
+}
+
+# backend 日志双写:
+#   - 原样落盘 $BACKEND_LOG (无前缀,便于 grep / awk)
+#   - 带 [backend ] 前缀进终端
 (
   cd "$BACKEND_DIR"
   uv run uvicorn app.main:app --reload --host 0.0.0.0 --port "$BACKEND_PORT" 2>&1 \
-    | prefix_awk "$(printf "${BLUE}[backend ]${NC} ")"
+    | prefix_and_log "$(printf "${BLUE}[backend ]${NC} ")" "$BACKEND_LOG"
 ) &
 PIDS+=("$!")
 
