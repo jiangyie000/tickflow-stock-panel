@@ -10,6 +10,10 @@ ARG PYPI_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG PYPI_FALLBACK=https://mirrors.aliyun.com/pypi/simple
 ARG BACKEND_EXTRAS=
 ARG CODEX_CLI_VERSION=0.144.3
+# 代理支持 (build 时通过 --build-arg 传入, 传了则 apt/pip 走代理, 否则按 USE_CN_MIRROR 自动换源)
+ARG HTTP_PROXY=
+ARG HTTPS_PROXY=
+ARG NO_PROXY=
 
 # === Stage 1: 前端构建 ===
 FROM node:20-alpine AS frontend-builder
@@ -77,6 +81,18 @@ WORKDIR /app
 # 自带 libnode/libc-ares 等全部动态依赖, 无需手动补库。
 # 国内构建走 apt mirror 已在 debian 镜像sources.list 配好, 无需额外换源。
 # tesseract-ocr: 自选截图导入（始终安装）; nodejs: 仅 INCLUDE_STOCKSDK=1 时安装
+# 独立 RUN 块配置 apt proxy.conf (若传了 HTTP_PROXY) 或自动换源 (USE_CN_MIRROR=1),
+# 故意与下方 apt-get 块解耦, 最小化与上游 Dockerfile 改动的冲突概率。
+RUN if [ -n "$HTTP_PROXY" ] || [ -n "$HTTPS_PROXY" ]; then \
+      mkdir -p /etc/apt/apt.conf.d && \
+      printf 'Acquire::http::Proxy "%s";\nAcquire::https::Proxy "%s";\n' \
+        "$HTTP_PROXY" "$HTTPS_PROXY" > /etc/apt/apt.conf.d/00proxy; \
+    elif [ "$USE_CN_MIRROR" = "1" ]; then \
+      sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; \
+              s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g' \
+        /etc/apt/sources.list.d/debian.sources; \
+    fi
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
     && if [ "$INCLUDE_STOCKSDK" = "1" ]; then \
