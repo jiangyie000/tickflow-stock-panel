@@ -150,7 +150,7 @@ def install_plugin(name: str) -> tuple[bool, str]:
                 if result.returncode == 2:
                     result = subprocess.run(
                         [uv_bin, "pip", "install", "--no-config",
-                         "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple",
+                         "--index-url", "https://mirrors.aliyun.com/pypi/simple",
                          "-r", str(req)],
                         capture_output=True, text=True, timeout=300,
                         env={**__import__("os").environ, "UV_HTTP_TIMEOUT": "300"},
