@@ -1535,6 +1535,9 @@ export const api = {
     request<{ active_id: string | null; jobs: PipelineJobSummary[] }>(
       `/api/pipeline/jobs?limit=${limit}`,
     ),
+  pipelineCancel: (id: string) => request<{ cancelled: string }>(
+    `/api/pipeline/jobs/${id}/cancel`, { method: 'POST' },
+  ),
 
   dataStatus: () => request<DataStatus>('/api/data/status'),
   dataClear: () => request<{ deleted_files: number }>('/api/data/clear', { method: 'POST' }),

@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Info,
   WandSparkles,
+  X,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { EndpointTestDialog } from '@/components/EndpointTestDialog'
@@ -91,6 +92,14 @@ export function Data() {
     onSuccess: ({ job_id }) => {
       setActiveJobId(job_id)
       startTime.current = Date.now()
+    },
+  })
+
+  const cancelSync = useMutation({
+    mutationFn: () => api.pipelineCancel(activeJobId!),
+    onSuccess: () => {
+      // 取消后清掉 activeJobId, query 会自动停止轮询 (enabled=false)
+      setActiveJobId(null)
     },
   })
 
@@ -558,6 +567,20 @@ export function Data() {
               )}
               {isStarting ? '启动中…' : isRunning ? '同步中…' : '立即同步'}
             </button>
+            {isRunning && (
+              <button
+                onClick={() => cancelSync.mutate()}
+                disabled={cancelSync.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-danger/10 border border-danger/30 text-danger text-xs font-medium hover:bg-danger/20 disabled:opacity-40 transition-all duration-150"
+              >
+                {cancelSync.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
+                取消同步
+              </button>
+            )}
             <button
               onClick={() => setOpenSettings('pipeline-scope')}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-secondary hover:text-accent hover:bg-accent/8 text-xs transition-colors duration-150"
