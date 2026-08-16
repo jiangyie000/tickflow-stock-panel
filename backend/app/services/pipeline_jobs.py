@@ -279,6 +279,23 @@ class JobStore:
             except RuntimeError:
                 pass
 
+    def request_cancel(self, job_id: str) -> None:
+        """标记 job 为「已请求取消」(cooperative cancel)。
+
+        真正的中断需要 daily_pipeline.run_now 在 progress 回调里检查这个标志
+        并抛 CancelledError —— 那是大改动, 这里只提供基础。
+        配合 cancel_job() 释放 _heavy_run_lock, 让新任务能起来。
+        """
+        with self._lock:
+            j = self._active_jobs.get(job_id)
+            if j:
+                j["cancel_requested"] = True
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        with self._lock:
+            j = self._active_jobs.get(job_id)
+            return bool(j and j.get("cancel_requested"))
+
     def clear(self) -> None:
         """清空所有任务（内存 + 磁盘文件）。"""
         with self._lock:

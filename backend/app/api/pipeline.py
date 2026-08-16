@@ -88,14 +88,29 @@ def get_job(job_id: str) -> dict:
 
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str) -> dict:
-    """手动取消一个 running 的 job。"""
+    """手动取消一个 running 的 job。
+
+    **已知架构限制**: pipeline 跑在 ThreadPoolExecutor 里, Python 同步函数
+    无法从外部中断。这里只做两件事:
+      1. 标记 job 为 cancel_requested + failed (前端立即看到状态变更)
+      2. 释放 _heavy_run_lock, 让后续 /run 能起新任务
+
+    旧线程会跑完当前 chunk 才退出 (写 parquet 幂等, 安全但占资源)。
+    真要立即停只能 kill -9 uvicorn 进程。
+    """
     j = job_store.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")
     if j["status"] not in ("running", "pending"):
         raise HTTPException(status_code=400, detail=f"job status is {j['status']}, cannot cancel")
+    job_store.request_cancel(job_id)
     job_store.fail(job_id, "用户手动取消")
-    return {"cancelled": job_id}
+    # 释放重任务锁 — 防止僵尸线程卡住后续 /run
+    try:
+        release_run_slot()
+    except Exception:  # noqa: BLE001
+        pass
+    return {"cancelled": job_id, "note": "旧线程可能仍在 executor 中, 无法立即中断"}
 
 
 @router.get("/jobs")

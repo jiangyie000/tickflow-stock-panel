@@ -465,18 +465,30 @@ def compute_indicators(df: pl.DataFrame, needed: set[str] | None = None) -> pl.D
         _p4mom.append((pl.col("close") / pl.col("close").shift(30).over("symbol") - 1).alias("momentum_30d"))
     if "momentum_60d" in want:
         _p4mom.append((pl.col("close") / pl.col("close").shift(60).over("symbol") - 1).alias("momentum_60d"))
+    # ---- 当日涨跌 / 涨跌额 / 振幅 ----
+    # 用 raw_close (不复权原始价) 计算而非前复权 close, 避免除权日虚高:
+    #   前复权算法保持"最新价不变",除权当天 close 是除权前真实价,prev_close 是除权后调整价,
+    #   二者直接相除会把"除权缺口"算成涨幅(典型 002594 之类会算到 +200% 甚至 +1000%)。
+    # raw_close 永远是不复权真实价,shift(1) 是真实前收,数学上完全等价于前复权价除前复权价
+    # (正常日 close==raw_close),但除权日得到的是真实涨跌幅。
+    # 振幅同理:raw_high/raw_low 是不复权极值,raw_close.shift(1) 是真实昨收。
     if "change_pct" in want:
-        _p4mom.append((pl.col("close") / pl.col("close").shift(1).over("symbol") - 1).alias("change_pct"))
+        _p4mom.append(
+            (pl.col("raw_close") / pl.col("raw_close").shift(1).over("symbol") - 1).alias("change_pct")
+        )
     if _p4mom:
         df = df.with_columns(_p4mom)
     if "change_amount" in want:
         df = df.with_columns(
-            (pl.col("close") - pl.col("close").shift(1).over("symbol")).alias("change_amount"),
+            (pl.col("raw_close") - pl.col("raw_close").shift(1).over("symbol")).alias("change_amount"),
         )
     if "amplitude" in want:
         df = df.with_columns(
-            pl.when(pl.col("close").shift(1).over("symbol") > 0)
-              .then((pl.col("high") - pl.col("low")) / pl.col("close").shift(1).over("symbol"))
+            pl.when(pl.col("raw_close").shift(1).over("symbol") > 0)
+              .then(
+                  (pl.col("raw_high") - pl.col("raw_low"))
+                  / pl.col("raw_close").shift(1).over("symbol")
+              )
               .otherwise(None)
               .alias("amplitude"),
         )
@@ -1314,6 +1326,7 @@ def _load_recent_history(enriched_base: Path, symbols: list[str], days: int) -> 
     只读基础行情列, 作为指标计算的历史前缀。
     """
     from datetime import date, timedelta
+    _cast = pl.ScanCastOptions(integer_cast="allow-float")
     cutoff = date.today() - timedelta(days=days + 30)  # 多读 30 天余量
 
     try:

@@ -1,18 +1,58 @@
 """FastAPI 入口。"""
 from __future__ import annotations
 
-import logging
-import threading
-from contextlib import asynccontextmanager
-from pathlib import Path
+# 必须在所有 import 之前: 禁掉 macOS System Proxy (SCDynamicStore) 让 Python 启动期
+# 任何 HTTP 客户端 (httpx/urllib/aiohttp) 走直连。
+#
+# 背景: macOS 上 System Preferences → Network → Proxies 设了 Web/Secure Proxy 后,
+# Python 通过 _scproxy / SCDynamicStoreCopyProxies 自动走系统代理 (默认 mihomo 7890)。
+# mihomo 上游网络抖动时, uvicorn 启动期任何 lazy 探测/心跳调用都会永久 hang,
+# 表现为 "Started server process" 之后 30+ 秒不输出, 3018 端口不 LISTEN。
+#
+# 这里显式 monkey-patch 三个常见入口:
+#   - _scproxy._get_proxies (httpx/aiohttp 在 macOS 上走这里)
+#   - urllib.request.getproxies (标准库 urllib 走这里)
+#   - socket.create_connection (兜底, 防止有库直接 getaddrinfo 后用 socket.create_connection)
+#
+# 副作用: 整个进程都走直连。如果某些调用真的需要走系统代理 (极少见),
+# 可以临时在调用处指定 trust_env=True 或显式 proxies= 参数。
+import socket as _socket
+import urllib.request as _urllib_request
 
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+try:
+    import _scproxy as _scproxy_mod
+    _scproxy_mod._get_proxies = lambda: {}  # type: ignore[attr-defined]
+except ImportError:
+    pass  # 非 macOS, 不需要
 
-from app import __version__
-from app.api import analysis, auth as auth_api, backtest, data, ext_data, financials, indices, intraday, kline, market_recap, monitor_rules, alerts, overview, pipeline, regime, rps, screener, settings as settings_api, signals, stock_analysis, strategy, watchlist
+_urllib_request.getproxies = lambda: {}
+
+# 把 socket.create_connection 绑成 "忽略系统代理" 的版本 (只传 address,
+# 实际已经走直连, 这里主要是防止某些库显式传 proxy 参数时被劫持)。
+_orig_create_connection = _socket.create_connection
+
+
+def _patched_create_connection(address, *args, **kwargs):  # noqa: ANN001
+    # 任何残余的 proxy 关键字 / 字段在这里会被直接忽略, 保持纯直连。
+    kwargs.pop("proxy", None)
+    kwargs.pop("source_address", None)  # 让 OS 选源
+    return _orig_create_connection(address, *args, **kwargs)
+
+
+_socket.create_connection = _patched_create_connection
+
+import logging  # noqa: E402
+import threading  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+from app import __version__  # noqa: E402
+from app.api import analysis, auth as auth_api, backtest, data, ext_data, financials, indices, intraday, kline, market_recap, monitor_rules, alerts, overview, pipeline, regime, rps, screener, settings as settings_api, signals, stock_analysis, strategy, watchlist  # noqa: E402,F401
 from app.api.routes import router as core_router
 from app.config import settings
 from app.jobs import daily_pipeline

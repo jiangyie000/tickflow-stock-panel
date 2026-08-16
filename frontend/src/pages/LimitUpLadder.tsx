@@ -66,17 +66,24 @@ const DEFAULT_BF: BrokenFailedConfig = {
   failedShow: true,
 }
 
+const DEFAULT_EXT_FIELDS: ExtFieldConfig = {
+  concept: { field: 'ext_gn_ths.所属概念' },
+  industry: { field: 'ext_hy_ths.所属同花顺行业' },
+  showConceptStats: true,
+  showIndustryStats: true,
+}
+
 function loadExtFields(): ExtFieldConfig {
   const raw = storage.limitLadderExtFields.get({}) as any
-  if (!raw) return {}
+  if (!raw || (typeof raw === 'object' && Object.keys(raw).length === 0)) return DEFAULT_EXT_FIELDS
+  // 兜底: 已有配置但缺 concept/industry → 补默认值
+  const merged = { ...DEFAULT_EXT_FIELDS, ...raw }
   // 兼容旧格式 { concept: "id.field", conceptSep: "x" }
   if (typeof raw.concept === 'string') {
-    return {
-      concept: raw.concept ? { field: raw.concept, display: { displayMode: 'tag', separator: raw.conceptSep } } : undefined,
-      industry: raw.industry ? { field: raw.industry, display: { displayMode: 'tag', separator: raw.industrySep } } : undefined,
-    }
+    merged.concept = raw.concept ? { field: raw.concept, display: { displayMode: 'tag', separator: raw.conceptSep } } : merged.concept
+    merged.industry = raw.industry ? { field: raw.industry, display: { displayMode: 'tag', separator: raw.industrySep } } : merged.industry
   }
-  return raw
+  return merged
 }
 
 /** 根据显示开关过滤 extFields */
@@ -91,7 +98,9 @@ function resolveExtFields(fields: ExtFieldConfig, showConcept: boolean, showIndu
 
 function buildExtColumnsParam(fields: ExtFieldConfig): string | undefined {
   const parts = [fields.concept?.field, fields.industry?.field].filter(Boolean)
-  return parts.length > 0 ? parts.join(',') : undefined
+  // 去重: concept 和 industry 可能配成同一个字段, 传重复参数会导致后端 JOIN 冲突
+  const unique = [...new Set(parts)]
+  return unique.length > 0 ? unique.join(',') : undefined
 }
 
 /** 从 stock row 中取出 ext 字段值，按配置渲染 */
@@ -889,7 +898,6 @@ function TagStats({ title, tiers, extFields, fieldKey, color, selectedTag, onSel
                 key={name}
                 onClick={() => {
                   onSelect(isSelected ? null : { fieldKey, tag: name })
-                  onDimensionClick(fieldKey, name, extFields[fieldKey]?.field)
                 }}
                 className="text-[11px] px-2 py-1 rounded-sm whitespace-nowrap cursor-pointer hover:brightness-110 transition-all"
                 style={{
@@ -1030,7 +1038,6 @@ function TierGroup({ tier, defaultOpen, extFields, filterKeys, bf, onStockClick,
                           key={name}
                           onClick={() => {
                             onSelectTag(isSelected ? null : { fieldKey: 'concept', tag: name })
-                            onDimensionClick('concept', name, extFields.concept?.field)
                           }}
                           className="text-[10px] px-1.5 py-0.5 rounded-sm whitespace-nowrap cursor-pointer hover:brightness-110 transition-all"
                           style={{
@@ -1060,7 +1067,6 @@ function TierGroup({ tier, defaultOpen, extFields, filterKeys, bf, onStockClick,
                           key={name}
                           onClick={() => {
                             onSelectTag(isSelected ? null : { fieldKey: 'industry', tag: name })
-                            onDimensionClick('industry', name, extFields.industry?.field)
                           }}
                           className="text-[10px] px-1.5 py-0.5 rounded-sm whitespace-nowrap cursor-pointer hover:brightness-110 transition-all"
                           style={{

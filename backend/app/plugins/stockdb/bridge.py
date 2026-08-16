@@ -1,44 +1,45 @@
-"""stockdb 桥接:通过 HTTP 调 stockdb K-V 数据库服务。
+"""stockdb 桥接: 通过本地 SDK 直连 stockdb K-V 数据库服务。
 
-URL 协议: http://{STOCKDB_URL}/?cmd={get|vals|keys}&t={table}:{key}:{range}
-  - cmd=get  → dict (单条) 或 None
-  - cmd=vals → list[dict] (匹配的全部值)
-  - cmd=keys → list[str] (匹配的全部 key)
+SDK (stock_sdk) 通过编译二进制 (stockdb.so) 直连本地 LevelDB,
+默认地址 127.0.0.1:7899, 本地 IPC 无网络延迟。
+
+模块级 rd 单例由 SDK 维护, 首次调用时懒初始化连接 + 预加载复权因子。
 """
 from __future__ import annotations
 
-import os
-
-import httpx
-
-_DEFAULT_URL = "http://192.168.31.145:7899"
-STOCKDB_URL = os.getenv("STOCKDB_URL", _DEFAULT_URL).rstrip("/")
-_TIMEOUT = 30.0
-
 
 class StockDBBridgeError(RuntimeError):
-    """桥接调用失败(连不上 / 非 2xx / JSON 解析失败)。"""
+    """桥接调用失败(SDK 未安装 / 连不上 stockdb 服务)。"""
 
 
-def call(cmd: str, t: str) -> object:
-    """调一次 stockdb,返回 JSON 解析后的对象(可能 dict / list / None)。"""
-    url = f"{STOCKDB_URL}/?cmd={cmd}&t={t}"
+def _get_rd():
+    """获取 SDK 的 rd 单例, 懒初始化。
+
+    放在函数内调用而非模块顶层, 避免 import 时就触发连接 ——
+    plugin loader 在 _call_check 阶段调 availability() 才真正连接。
+    """
     try:
-        with httpx.Client(timeout=_TIMEOUT) as client:
-            r = client.get(url)
-            r.raise_for_status()
-            data = r.json()
-    except httpx.HTTPError as e:
-        raise StockDBBridgeError(f"stockdb HTTP 失败: {url}: {e}") from e
-    except Exception as e:  # noqa: BLE001
-        raise StockDBBridgeError(f"stockdb 调 {cmd} {t} 失败: {e}") from e
-    return data
+        from stock_sdk import rd  # noqa: F401 (rd 是 proxy, 属性访问才触发)
+        return rd
+    except ImportError as e:
+        raise StockDBBridgeError(
+            "stock_sdk 未安装。请运行 stockdb/pybao/安装.py 安装 SDK。"
+        ) from e
 
 
 def availability() -> tuple[bool, str]:
-    """探活: 调一次简单查询,成功即 OK。返回 (是否可用, 原因)。"""
+    """探活: 用 SDK 拉一条数据验证连接。返回 (是否可用, 原因)。
+
+    SDK 默认连 127.0.0.1:7899, socket_timeout=1s (localhost),
+    探活天然快, 不需要额外短超时控制。
+    """
     try:
-        call("get", "日k:600000:20260101")
+        rd = _get_rd()
+        data = rd.vals("日k", "600519", "*").do()
+        if data:
+            return True, "ok (stockdb SDK @ 127.0.0.1:7899)"
+        return True, "ok (stockdb SDK 连接成功, 暂无数据)"
     except StockDBBridgeError as e:
-        return False, f"{e} (STOCKDB_URL={STOCKDB_URL})"
-    return True, f"ok (stockdb @ {STOCKDB_URL})"
+        return False, str(e)
+    except Exception as e:  # noqa: BLE001
+        return False, f"{e}"

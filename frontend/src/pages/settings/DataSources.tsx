@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Database, Plus, RefreshCw, Zap, FileWarning } from 'lucide-react'
@@ -19,7 +19,13 @@ export function SettingsDataSourcesPanel() {
   const qc = useQueryClient()
   const prefs = usePreferences()
   const sources = useQuery({ queryKey: QK.dataSources, queryFn: api.dataSources })
-  const [selected, setSelected] = useState<string>('tickflow') // 当前在右侧编辑的源 name
+  const [selected, setSelected] = useState<string>('') // 当前在右侧编辑的源 name, '' 期间等 prefs 加载
+  // prefs 加载后自动选中当前使用中的数据源
+  useEffect(() => {
+    if (prefs.data?.daily_data_provider && selected === '') {
+      setSelected(prefs.data.daily_data_provider)
+    }
+  }, [prefs.data?.daily_data_provider, selected])
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
   const reload = useMutation({
@@ -35,7 +41,7 @@ export function SettingsDataSourcesPanel() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.dataSources })
       qc.invalidateQueries({ queryKey: QK.preferences })
-      setSelected('tickflow')
+      setSelected(activeName)
       setConfirmDelete(null)
       toast('数据源已删除', 'success')
     },
@@ -314,6 +320,7 @@ export function SettingsDataSourcesPanel() {
 
       {/* ===== 下方: 编辑区 ===== */}
       <AnimatePresence mode="wait">
+        {selected && (
         <motion.div
           key={selected}
           initial={{ opacity: 0, y: 6 }}
@@ -331,7 +338,7 @@ export function SettingsDataSourcesPanel() {
               key={selected}
               initial={null}
               existingName={selected === '__new__' ? undefined : selected}
-              onCancel={() => setSelected('tickflow')}
+              onCancel={() => setSelected(activeName)}
               onSaved={() => {
                 qc.invalidateQueries({ queryKey: QK.dataSources })
                 // 强制清除该源的详情缓存, 下次编辑重新拉取最新配置
@@ -354,6 +361,7 @@ export function SettingsDataSourcesPanel() {
             />
           ) : null}
         </motion.div>
+        )}
       </AnimatePresence>
 
       {/* 删除确认弹窗 */}

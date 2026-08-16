@@ -2,7 +2,9 @@
 name = "tickflow-stock-panel-backend"
 version = "0.1.88"
 description = "A 股选股 + 监控 + 回测面板 — TickFlow 适配"
-readme = "../README.md"
+# readme 留空: hatchling 要求 readme 路径在项目目录内,
+# 根目录 README.md 在 backend/ 外面会触发 "path must be within project directory"。
+
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [

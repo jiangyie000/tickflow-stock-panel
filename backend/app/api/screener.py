@@ -768,6 +768,10 @@ def limit_ladder(
 
     # 动态 JOIN 扩展数据
     ext_specs = _parse_ext_columns(ext_columns) if ext_columns else []
+    # 去重: 前端可能传重复的 (config_id, field_name) 组合, 重复 JOIN 会产生
+    # _right 后缀列导致 select 重复列名报错。
+    seen_ext: set[str] = set()
+    ext_specs = [(c, f) for c, f in ext_specs if f"{c}__{f}" not in seen_ext and not seen_ext.add(f"{c}__{f}")]
     ext_col_names: list[str] = []
     if ext_specs:
         db = repo.store.db

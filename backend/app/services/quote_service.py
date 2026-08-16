@@ -697,7 +697,10 @@ class QuoteService:
         logger.info("行情刷新: %d 只股票, %d 只ETF, %d 只指数, 耗时 %.0fms", len(stock_records), len(etf_records), len(index_records), fetch_ms)
 
         # ---- 写 kline_daily (不复权原始价格, 只有 OHLCV) ----
-        daily_df = self._build_daily(stock_records)
+        # stock_records 启用 volume 单位归一化: 实时 API 在沪深股返回"股",
+        # batch (stockdb / tickflow) 是"手", 实时覆写 daily 时归一化避免后续 enriched 单位错配。
+        # etf_records 实时 API 已是"手", 无需归一化。
+        daily_df = self._build_daily(stock_records, normalize_volume_to_lots=True)
         if not daily_df.is_empty() and self._repo:
             try:
                 self._repo.flush_live_daily(daily_df)
@@ -887,8 +890,17 @@ class QuoteService:
         return index_records, etf_records, stock_records
 
     @staticmethod
-    def _build_daily(records: list[dict]) -> pl.DataFrame:
-        """将 API records 转为日K格式 DataFrame (OHLCV + quote_ts, 写 kline_daily 用)。"""
+    def _build_daily(records: list[dict], normalize_volume_to_lots: bool = False) -> pl.DataFrame:
+        """将 API records 转为日K格式 DataFrame (OHLCV + quote_ts, 写 kline_daily 用)。
+
+        normalize_volume_to_lots: 实时行情 API 在沪深主板/创业板/科创板上的 volume
+            单位是"股"(e.g. 1.45e7), 而 batch K-line (stockdb / tickflow) 在
+            同样品种上返回"手"(e.g. 145017), ETF/北交所实时 API 也是"手"。
+            实时覆写 daily 时不归一化会导致后续 batch 重写 daily 后 enriched
+            残留 ×100 的脏数据(volume 单位在 enriched / daily 间错配)。
+            传 True 时对沪深主板/创业/科创板的 volume 除以 100 统一为"手",
+            北交所/ETF (实时 API 本就是"手") 不受影响。
+        """
         if not records:
             return pl.DataFrame()
         df = pl.DataFrame(records)
@@ -922,6 +934,21 @@ class QuoteService:
                     .otherwise(pl.col(col))
                     .alias(col)
                 )
+        # 实时行情 volume 单位归一化(沪深主板/创业/科创板: 股 → 手)
+        # 北交所 920xxx 首位是 '9' 易误判, 改按市场后缀判定: 沪深股 = .SH(非 5 开头)
+        # 或 .SZ(非 1 开头); .BJ (北交所) 和 5/1 开头(.SH/.SZ 的基金/ETF) 实时 API
+        # 本就是"手", 保持原值。
+        if normalize_volume_to_lots and "volume" in result.columns and "symbol" in result.columns:
+            is_hs_stock = (
+                (pl.col("symbol").str.ends_with(".SH") & ~pl.col("symbol").str.starts_with("5"))
+                | (pl.col("symbol").str.ends_with(".SZ") & ~pl.col("symbol").str.starts_with("1"))
+            )
+            result = result.with_columns(
+                pl.when(is_hs_stock & pl.col("volume").is_not_null() & (pl.col("volume") > 0))
+                  .then(pl.col("volume") / 100.0)
+                  .otherwise(pl.col("volume"))
+                  .alias("volume")
+            )
         return result
 
     @staticmethod
